@@ -79,6 +79,8 @@ use async_trait::async_trait;
 #[cfg(feature = "v1")]
 use common_utils::ext_traits::AsyncExt;
 use error_stack::{report, ResultExt};
+#[cfg(feature = "v1")]
+use router_env::logger;
 use router_env::{instrument, tracing};
 
 #[cfg(feature = "v2")]
@@ -110,7 +112,9 @@ pub use self::{
     payment_confirm_intent::PaymentIntentConfirm, payment_create_intent::PaymentIntentCreate,
     payment_session_intent::PaymentSessionIntent,
 };
-use super::{helpers, CustomerDetails, OperationSessionGetters, OperationSessionSetters};
+use super::{
+    helpers, CustomerDetails, OperationSessionGetters, OperationSessionSetters, PaymentData,
+};
 #[cfg(feature = "v1")]
 pub use crate::core::payment_methods::transformers::PaymentMethodFetchData;
 #[cfg(feature = "v2")]
@@ -224,6 +228,64 @@ pub enum PaymentFlowKind {
     #[default]
     Standard,
     ExternalVaultProxy,
+}
+
+#[cfg(feature = "v1")]
+pub async fn is_payment_method_data_collection_allowed(
+    state: &SessionState,
+    platform: &domain::Platform,
+    feature_config: &core_utils::FeatureConfig,
+    payment_id: &common_utils::id_type::PaymentId,
+    connector_name: Option<&str>,
+) -> bool {
+    let connector = match (
+        feature_config.is_payment_method_modular_allowed,
+        connector_name,
+    ) {
+        (true, Some(connector_name)) => {
+            match connector_name.parse::<common_enums::connector_enums::Connector>() {
+                Ok(connector) => Some(connector),
+                Err(error) => {
+                    logger::warn!(
+                    ?error,
+                    connector = connector_name,
+                    "Failed to resolve connector while checking payment method data collection; skipping collection."
+                );
+                    None
+                }
+            }
+        }
+        (true, None) => {
+            logger::warn!(
+                "Connector is unavailable while checking payment method data collection; skipping collection."
+            );
+            None
+        }
+        (false, _) => {
+            logger::info!(
+                "Organization is not eligible for PM Modular Service; skipping payment method data collection."
+            );
+            None
+        }
+    };
+
+    match connector {
+        Some(connector) => {
+            let dimensions = dimension_state::Dimensions::new()
+                .with_provider_merchant_id(platform.get_provider().get_provider_merchant_id())
+                .with_processor_merchant_id(platform.get_processor().get_processor_merchant_id())
+                .with_connector(connector);
+
+            dimensions
+                .get_allow_payment_method_data_collection(
+                    state.store.as_ref(),
+                    state.superposition_service.as_ref(),
+                    Some(payment_id),
+                )
+                .await
+        }
+        None => false,
+    }
 }
 
 #[cfg(feature = "v2")]
@@ -811,18 +873,15 @@ where
 
 #[cfg(feature = "v1")]
 #[async_trait]
-impl<D, F: Clone + Send, Op: Send + Sync + Operation<F, api::PaymentsCaptureRequest, Data = D>>
-    Domain<F, api::PaymentsCaptureRequest, D> for Op
-where
-    for<'a> &'a Op: Operation<F, api::PaymentsCaptureRequest, Data = D>,
-    D: OperationSessionGetters<F> + OperationSessionSetters<F> + Send,
+impl<F: Clone + Send + Sync> Domain<F, api::PaymentsCaptureRequest, PaymentData<F>>
+    for PaymentApprove
 {
     #[instrument(skip_all)]
     #[cfg(feature = "v1")]
     async fn get_or_create_customer_details<'a>(
         &'a self,
         _state: &SessionState,
-        _payment_data: &mut D,
+        _payment_data: &mut PaymentData<F>,
         _request: Option<CustomerDetails>,
         _provider: &domain::Provider,
         _initiator: Option<&domain::Initiator>,
@@ -830,7 +889,7 @@ where
         _mandate_type: Option<api::MandateTransactionType>,
     ) -> CustomResult<
         (
-            BoxedOperation<'a, F, api::PaymentsCaptureRequest, D>,
+            BoxedOperation<'a, F, api::PaymentsCaptureRequest, PaymentData<F>>,
             Option<domain::Customer>,
         ),
         errors::StorageError,
@@ -843,34 +902,16 @@ where
     }
 
     #[instrument(skip_all)]
-    #[cfg(feature = "v2")]
-    async fn get_customer_details<'a>(
-        &'a self,
-        _state: &SessionState,
-        _payment_data: &mut D,
-        _merchant_key_store: &domain::MerchantKeyStore,
-        _storage_scheme: enums::MerchantStorageScheme,
-    ) -> CustomResult<
-        (
-            BoxedOperation<'a, F, api::PaymentsCaptureRequest, D>,
-            Option<domain::Customer>,
-        ),
-        errors::StorageError,
-    > {
-        todo!()
-    }
-
-    #[instrument(skip_all)]
     async fn make_pm_data<'a>(
         &'a self,
         _state: &'a SessionState,
-        _payment_data: &mut D,
+        _payment_data: &mut PaymentData<F>,
         _storage_scheme: enums::MerchantStorageScheme,
         _platform: &domain::Platform,
         _business_profile: &domain::Profile,
         _should_retry_with_pan: bool,
     ) -> RouterResult<(
-        BoxedOperation<'a, F, api::PaymentsCaptureRequest, D>,
+        BoxedOperation<'a, F, api::PaymentsCaptureRequest, PaymentData<F>>,
         Option<domain::PaymentMethodData>,
         Option<String>,
     )> {
@@ -904,7 +945,7 @@ where
         _state: &SessionState,
         _processor: &domain::Processor,
         _dimensions: &dimension_state::DimensionsWithProcessorAndProviderMerchantId,
-        _payment_data: &mut D,
+        _payment_data: &mut PaymentData<F>,
         _business_profile: &domain::Profile,
     ) -> CustomResult<bool, errors::ApiErrorResponse> {
         Ok(false)
@@ -913,18 +954,15 @@ where
 
 #[cfg(feature = "v1")]
 #[async_trait]
-impl<D, F: Clone + Send, Op: Send + Sync + Operation<F, api::PaymentsCancelRequest, Data = D>>
-    Domain<F, api::PaymentsCancelRequest, D> for Op
-where
-    for<'a> &'a Op: Operation<F, api::PaymentsCancelRequest, Data = D>,
-    D: OperationSessionGetters<F> + OperationSessionSetters<F> + Send,
+impl<F: Clone + Send + Sync> Domain<F, api::PaymentsCancelRequest, PaymentData<F>>
+    for PaymentReject
 {
     #[instrument(skip_all)]
     #[cfg(feature = "v1")]
     async fn get_or_create_customer_details<'a>(
         &'a self,
         _state: &SessionState,
-        _payment_data: &mut D,
+        _payment_data: &mut PaymentData<F>,
         _request: Option<CustomerDetails>,
         _provider: &domain::Provider,
         _initiator: Option<&domain::Initiator>,
@@ -932,7 +970,7 @@ where
         _mandate_type: Option<api::MandateTransactionType>,
     ) -> CustomResult<
         (
-            BoxedOperation<'a, F, api::PaymentsCancelRequest, D>,
+            BoxedOperation<'a, F, api::PaymentsCancelRequest, PaymentData<F>>,
             Option<domain::Customer>,
         ),
         errors::StorageError,
@@ -946,34 +984,16 @@ where
     }
 
     #[instrument(skip_all)]
-    #[cfg(feature = "v2")]
-    async fn get_customer_details<'a>(
-        &'a self,
-        _state: &SessionState,
-        _payment_data: &mut D,
-        _merchant_key_store: &domain::MerchantKeyStore,
-        storage_scheme: enums::MerchantStorageScheme,
-    ) -> CustomResult<
-        (
-            BoxedOperation<'a, F, api::PaymentsCancelRequest, D>,
-            Option<domain::Customer>,
-        ),
-        errors::StorageError,
-    > {
-        todo!()
-    }
-
-    #[instrument(skip_all)]
     async fn make_pm_data<'a>(
         &'a self,
         _state: &'a SessionState,
-        _payment_data: &mut D,
+        _payment_data: &mut PaymentData<F>,
         _storage_scheme: enums::MerchantStorageScheme,
         _platform: &domain::Platform,
         _business_profile: &domain::Profile,
         _should_retry_with_pan: bool,
     ) -> RouterResult<(
-        BoxedOperation<'a, F, api::PaymentsCancelRequest, D>,
+        BoxedOperation<'a, F, api::PaymentsCancelRequest, PaymentData<F>>,
         Option<domain::PaymentMethodData>,
         Option<String>,
     )> {
@@ -996,7 +1016,7 @@ where
         _state: &SessionState,
         _processor: &domain::Processor,
         _dimensions: &dimension_state::DimensionsWithProcessorAndProviderMerchantId,
-        _payment_data: &mut D,
+        _payment_data: &mut PaymentData<F>,
         _business_profile: &domain::Profile,
     ) -> CustomResult<bool, errors::ApiErrorResponse> {
         Ok(false)

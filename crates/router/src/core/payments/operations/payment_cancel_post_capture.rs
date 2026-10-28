@@ -3,15 +3,17 @@ use std::marker::PhantomData;
 use api_models::enums::FrmSuggestion;
 use async_trait::async_trait;
 use error_stack::ResultExt;
-use hyperswitch_domain_models::mandates;
-use router_env::{instrument, tracing};
+use hyperswitch_domain_models::{mandates, payment_method_data::ApiPaymentMethodDataMandateIds};
+use router_env::{instrument, logger, tracing};
 
 use super::{BoxedOperation, Domain, GetTracker, Operation, UpdateTracker, ValidateRequest};
 use crate::{
     core::{
         configs::dimension_state,
         errors::{self, RouterResult, StorageErrorExt},
+        payment_methods::transformers as pm_transformers,
         payments::{self, helpers, operations, PaymentData},
+        utils as core_utils,
     },
     routes::{app::ReqState, metrics, SessionState},
     services,
@@ -45,7 +47,7 @@ impl<F: Send + Clone + Sync> GetTracker<F, PaymentData<F>, api::PaymentsCancelPo
         _auth_flow: services::AuthFlow,
         _flow_kind: operations::PaymentFlowKind,
         _header_payload: &hyperswitch_domain_models::payments::HeaderPayload,
-        _payment_method_fetch_data: operations::PaymentMethodFetchData,
+        payment_method_fetch_data: operations::PaymentMethodFetchData,
         _dimensions: &dimension_state::DimensionsWithProcessorAndProviderMerchantId,
         _payment_pre_fetched_info: Option<operations::PaymentPreFetchedInformation>,
     ) -> RouterResult<
@@ -148,6 +150,15 @@ impl<F: Send + Clone + Sync> GetTracker<F, PaymentData<F>, api::PaymentsCancelPo
                 id: profile_id.get_string_repr().to_owned(),
             })?;
 
+        let payment_method_data = payment_method_fetch_data
+            .payment_method_with_raw_data
+            .clone()
+            .and_then(|pm| pm.raw_payment_method_data)
+            .or(request
+                .payment_method_data
+                .clone()
+                .map(domain::PaymentMethodData::from));
+
         let payment_data = PaymentData {
             flow: PhantomData,
             previous_db_records: (payment_attempt.clone(), payment_intent.clone()),
@@ -155,7 +166,10 @@ impl<F: Send + Clone + Sync> GetTracker<F, PaymentData<F>, api::PaymentsCancelPo
             payment_attempt,
             currency,
             amount,
-            mandate_id: None,
+            mandate_id: request
+                .payment_method_data
+                .as_ref()
+                .and_then(ApiPaymentMethodDataMandateIds::get_mandate_ids),
             mandate_connector: None,
             setup_mandate: None,
             customer_acceptance: None,
@@ -168,7 +182,7 @@ impl<F: Send + Clone + Sync> GetTracker<F, PaymentData<F>, api::PaymentsCancelPo
                 business_profile.use_billing_as_payment_method_billing,
             ),
             confirm: None,
-            payment_method_data: None,
+            payment_method_data,
             payment_method_token: None,
             payment_method_info: None,
             force_sync: None,
@@ -261,6 +275,69 @@ impl<F: Send + Clone + Sync> GetTracker<F, PaymentData<F>, api::PaymentsCancelPo
 impl<F: Clone + Send + Sync> Domain<F, api::PaymentsCancelPostCaptureRequest, PaymentData<F>>
     for PaymentCancelPostCapture
 {
+    #[instrument(skip_all)]
+    async fn fetch_payment_method(
+        &self,
+        state: &SessionState,
+        request: &api::PaymentsCancelPostCaptureRequest,
+        platform: &domain::Platform,
+        feature_config: &core_utils::FeatureConfig,
+    ) -> RouterResult<operations::PaymentMethodFetchData> {
+        if request.payment_method_data.is_none() && feature_config.is_payment_method_modular_allowed
+        {
+            let payment_method_fetch_result = async {
+                let payment_attempt = state
+                    .store
+                    .find_payment_attempt_last_successful_or_partially_captured_attempt_by_payment_id_processor_merchant_id(
+                        &request.payment_id,
+                        &platform.get_processor().get_processor_merchant_id(),
+                        platform.get_processor().get_storage_scheme(),
+                        platform.get_processor().get_key_store(),
+                    )
+                    .await
+                    .to_not_found_response(errors::ApiErrorResponse::PaymentNotFound)?;
+
+                match (
+                    operations::is_payment_method_data_collection_allowed(
+                        state,
+                        platform,
+                        feature_config,
+                        &request.payment_id,
+                        payment_attempt.connector.as_deref(),
+                    )
+                    .await,
+                    payment_attempt.payment_method_id,
+                ) {
+                    (true, Some(payment_method_id)) => {
+                        self.fetch_payment_method_from_modular_service(
+                            state,
+                            request,
+                            platform,
+                            &payment_attempt.profile_id,
+                            payment_method_id.as_str(),
+                        )
+                        .await
+                    }
+                    _ => Ok(operations::PaymentMethodFetchData::default()),
+                }
+            }
+            .await;
+
+            match payment_method_fetch_result {
+                Ok(payment_method_fetch_data) => Ok(payment_method_fetch_data),
+                Err(error) => {
+                    logger::warn!(
+                        ?error,
+                        "Failed to fetch optional payment method data for post-capture cancel; continuing without it."
+                    );
+                    Ok(operations::PaymentMethodFetchData::default())
+                }
+            }
+        } else {
+            Ok(operations::PaymentMethodFetchData::default())
+        }
+    }
+
     #[instrument(skip_all)]
     async fn get_or_create_customer_details<'a>(
         &'a self,
@@ -411,5 +488,32 @@ impl<F: Send + Clone + Sync>
                 requeue: false,
             },
         ))
+    }
+}
+
+impl PaymentCancelPostCapture {
+    async fn fetch_payment_method_from_modular_service(
+        &self,
+        state: &SessionState,
+        _request: &api::PaymentsCancelPostCaptureRequest,
+        platform: &domain::Platform,
+        profile_id: &common_utils::id_type::ProfileId,
+        payment_method_ref: &str,
+    ) -> RouterResult<operations::PaymentMethodFetchData> {
+        let pm_info = pm_transformers::fetch_payment_method_from_modular_service(
+            state,
+            platform,
+            profile_id,
+            payment_method_ref,
+            None,
+            true, // fetch raw card detail from the internal vault
+            false,
+        )
+        .await?;
+        logger::info!(
+            "Payment method fetched for Payment Cancel Post Capture from PM Modular Service."
+        );
+
+        Ok(operations::PaymentMethodFetchData::from_modular(pm_info))
     }
 }
