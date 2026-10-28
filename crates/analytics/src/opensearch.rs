@@ -8,9 +8,14 @@ use api_models::{
 use aws_config::{self, meta::region::RegionProviderChain, Region};
 use common_utils::{
     errors::{CustomResult, ErrorSwitch},
+    ext_traits::AsyncExt,
     types::TimeRange,
 };
 use error_stack::ResultExt;
+use hyperswitch_interfaces::secrets_interface::{
+    SecretManagementInterface, SecretsManagementError,
+};
+use hyperswitch_masking::{PeekInterface, Secret};
 use opensearch::{
     auth::Credentials,
     cert::CertificateValidation,
@@ -37,8 +42,13 @@ mod recording;
 #[serde(tag = "auth")]
 #[serde(rename_all = "lowercase")]
 pub enum OpenSearchAuth {
-    Basic { username: String, password: String },
-    Aws { region: String },
+    Basic {
+        username: String,
+        primary_password: Option<Secret<String>>,
+    },
+    Aws {
+        region: String,
+    },
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
@@ -86,7 +96,7 @@ impl Default for OpenSearchConfig {
             host: "https://localhost:9200".to_string(),
             auth: OpenSearchAuth::Basic {
                 username: "admin".to_string(),
-                password: "admin".to_string(),
+                primary_password: None,
             },
             indexes: OpenSearchIndexes {
                 payment_attempts: "hyperswitch-payment-attempt-events".to_string(),
@@ -209,8 +219,20 @@ impl OpenSearchClient {
     pub async fn create(conf: &OpenSearchConfig) -> CustomResult<Self, OpenSearchError> {
         let url = Url::parse(&conf.host).map_err(|_| OpenSearchError::ConnectionError)?;
         let transport = match &conf.auth {
-            OpenSearchAuth::Basic { username, password } => {
-                let credentials = Credentials::Basic(username.clone(), password.clone());
+            OpenSearchAuth::Basic {
+                username,
+                primary_password,
+                ..
+            } => {
+                let password = primary_password
+                    .as_ref()
+                    .filter(|password| !password.peek().is_empty())
+                    .ok_or_else(|| {
+                        error_stack::Report::new(OpenSearchError::ConnectionError).attach_printable(
+                            "OpenSearch Basic auth primary_password is missing or empty",
+                        )
+                    })?;
+                let credentials = Credentials::Basic(username.clone(), password.peek().clone());
                 TransportBuilder::new(SingleNodeConnectionPool::new(url))
                     .cert_validation(CertificateValidation::None)
                     .auth(credentials)
@@ -422,18 +444,26 @@ impl OpenSearchAuth {
         use common_utils::{ext_traits::ConfigExt, fp_utils::when};
 
         match self {
-            Self::Basic { username, password } => {
+            Self::Basic {
+                username,
+                primary_password,
+            } => {
                 when(username.is_default_or_empty(), || {
                     Err(ApplicationError::InvalidConfigurationValueError(
                         "Opensearch Basic auth username must not be empty".into(),
                     ))
                 })?;
 
-                when(password.is_default_or_empty(), || {
-                    Err(ApplicationError::InvalidConfigurationValueError(
-                        "Opensearch Basic auth password must not be empty".into(),
-                    ))
-                })?;
+                when(
+                    primary_password
+                        .as_ref()
+                        .is_none_or(|value| value.peek().is_empty()),
+                    || {
+                        Err(ApplicationError::InvalidConfigurationValueError(
+                            "Opensearch Basic auth password must not be empty".into(),
+                        ))
+                    },
+                )?;
             }
 
             Self::Aws { region } => {
@@ -450,6 +480,31 @@ impl OpenSearchAuth {
 }
 
 impl OpenSearchConfig {
+    pub async fn decrypt_credentials(
+        mut self,
+        client: &dyn SecretManagementInterface,
+    ) -> CustomResult<Self, SecretsManagementError> {
+        if !self.enabled {
+            return Ok(self);
+        }
+        if let OpenSearchAuth::Basic {
+            primary_password, ..
+        } = &mut self.auth
+        {
+            *primary_password = primary_password
+                .take()
+                .async_map(|secret| async move {
+                    client
+                        .get_secret(secret)
+                        .await
+                        .map_err(|error| error.attach_printable("opensearch.auth.primary_password"))
+                })
+                .await
+                .transpose()?;
+        }
+        Ok(self)
+    }
+
     pub async fn get_opensearch_client(&self) -> StorageResult<Option<OpenSearchClient>> {
         if !self.enabled {
             return Ok(None);
