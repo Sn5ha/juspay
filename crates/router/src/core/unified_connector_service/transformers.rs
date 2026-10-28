@@ -251,6 +251,7 @@ pub(super) fn build_ucs_order_details(
                     unit_discount_amount: detail
                         .unit_discount_amount
                         .map(|amount| amount.get_amount_as_i64()),
+                    total_amount: detail.total_amount.map(|amount| amount.get_amount_as_i64()),
                     discount_name: detail.discount_name.clone(),
                     discount_percentage: detail
                         .discount_percentage
@@ -283,7 +284,12 @@ fn build_ucs_l2_l3_data(l2_l3_data: Option<&L2L3Data>) -> Option<payments_grpc::
     let discount_amount = l2_l3_data.and_then(|data| data.get_discount_amount());
     let shipping_cost = l2_l3_data.and_then(|data| data.get_shipping_cost());
     let duty_amount = l2_l3_data.and_then(|data| data.get_duty_amount());
+    let order_commodity_code = l2_l3_data.and_then(|data| data.get_order_commodity_code());
     let shipping_amount_tax = l2_l3_data.and_then(|data| data.get_shipping_amount_tax());
+    let value_added_tax_amount = l2_l3_data.and_then(|data| data.get_value_added_tax_amount());
+    let value_added_tax_percent = l2_l3_data.and_then(|data| data.get_value_added_tax_percent());
+    let vat_invoice_reference_number =
+        l2_l3_data.and_then(|data| data.get_vat_invoice_reference_number());
     let tax_status = l2_l3_data.and_then(|data| data.get_tax_status());
     let order_tax_amount = l2_l3_data.and_then(|data| data.get_order_tax_amount());
     let customer_tax_registration_id = l2_l3_data
@@ -292,6 +298,9 @@ fn build_ucs_l2_l3_data(l2_l3_data: Option<&L2L3Data>) -> Option<payments_grpc::
     let merchant_tax_registration_id = l2_l3_data
         .and_then(|data| data.get_merchant_tax_registration_id())
         .map(|tax_id| tax_id.peek().to_owned().into());
+    let merchant_vat_registration_id = l2_l3_data
+        .and_then(|data| data.get_merchant_vat_registration_id())
+        .map(|vat_id| vat_id.peek().to_owned().into());
 
     let order_info = l2_l3_data
         .and_then(|data| data.order_info.as_ref())
@@ -303,6 +312,7 @@ fn build_ucs_l2_l3_data(l2_l3_data: Option<&L2L3Data>) -> Option<payments_grpc::
             discount_amount: discount_amount.map(|amount| amount.get_amount_as_i64()),
             shipping_cost: shipping_cost.map(|amount| amount.get_amount_as_i64()),
             duty_amount: duty_amount.map(|amount| amount.get_amount_as_i64()),
+            order_commodity_code,
         });
 
     let tax_info = l2_l3_data
@@ -313,8 +323,12 @@ fn build_ucs_l2_l3_data(l2_l3_data: Option<&L2L3Data>) -> Option<payments_grpc::
                 .map(|tax_status| payments_grpc::TaxStatus::foreign_from(tax_status).into()),
             customer_tax_registration_id,
             merchant_tax_registration_id,
+            merchant_vat_registration_id,
             shipping_amount_tax: shipping_amount_tax.map(|amount| amount.get_amount_as_i64()),
             order_tax_amount: order_tax_amount.map(|tax| tax.get_amount_as_i64()),
+            value_added_tax_amount: value_added_tax_amount.map(|amount| amount.get_amount_as_i64()),
+            value_added_tax_percent,
+            vat_invoice_reference_number,
         });
 
     if order_info.is_none() && tax_info.is_none() {
@@ -411,6 +425,7 @@ impl ForeignFrom<&api_models::payments::AddressDetails> for payments_grpc::Addre
             city: details.city.as_ref().map(|s| s.clone().into()),
             state: details.state.clone(),
             zip_code: details.zip.clone(),
+            origin_zip: details.origin_zip.clone(),
             country_alpha2_code,
             email: None,
             phone_number: None,
@@ -609,6 +624,7 @@ impl
             .transpose()?;
 
         Ok(Self {
+            integrity_specifications: None,
             split_payments: router_data
                 .request
                 .split_payments
@@ -778,6 +794,8 @@ impl
         let order_details = build_ucs_order_details(router_data.request.order_details.as_deref());
         let l2_l3_data = build_ucs_l2_l3_data(router_data.l2_l3_data.as_deref());
         Ok(Self {
+            integrity_specifications: None,
+            risk_assessment_data: None,
             split_settlement: None,
             split_payments: router_data
                 .request
@@ -1074,6 +1092,8 @@ impl
         let l2_l3_data = build_ucs_l2_l3_data(router_data.l2_l3_data.as_deref());
 
         Ok(Self {
+            integrity_specifications: None,
+            risk_assessment_data: None,
             split_settlement: None,
             split_payments: None,
             domain_data: None,
@@ -1382,6 +1402,9 @@ impl transformers::ForeignTryFrom<&RouterData<PSync, PaymentsSyncData, PaymentsR
             .transpose()?;
 
         Ok(Self {
+            integrity_specifications: None,
+            is_overcapture_enabled: None,
+            enable_partial_authorization: None,
             split_payments: router_data
                 .request
                 .split_payments
@@ -2286,6 +2309,10 @@ impl transformers::ForeignTryFrom<&RouterData<Capture, PaymentsCaptureData, Paym
             .map(ConnectorState::foreign_from);
 
         Ok(Self {
+            payment_method: None,
+            integrity_specifications: None,
+            is_overcapture_enabled: None,
+            currency_conversion_data: None,
             split_settlement: None,
             connector_transaction_id,
             merchant_capture_id: Some(router_data.connector_request_reference_id.clone()),
@@ -2407,6 +2434,8 @@ impl
             .transpose()?;
 
         Ok(Self {
+            integrity_specifications: None,
+            risk_assessment_data: None,
             split_settlement: None,
             split_payments: None,
             domain_data: None,
@@ -2589,6 +2618,8 @@ impl
         let order_details = build_ucs_order_details(router_data.request.order_details.as_deref());
         let l2_l3_data = build_ucs_l2_l3_data(router_data.l2_l3_data.as_deref());
         Ok(Self {
+            integrity_specifications: None,
+            risk_assessment_data: None,
             split_settlement: None,
             split_payments: router_data
                 .request
@@ -2796,6 +2827,8 @@ impl
             .transpose()?;
 
         Ok(Self {
+            integrity_specifications: None,
+            risk_assessment_data: None,
             is_account_funding_transaction: None,
             recipient_details: None,
             business_country: None,
@@ -3278,6 +3311,8 @@ impl
         };
 
         Ok(Self {
+            integrity_specifications: None,
+            currency_conversion_data: None,
             merchant_charge_id: Some(router_data.connector_request_reference_id.clone()),
             connector_recurring_payment_id,
             payment_method,
@@ -3555,6 +3590,8 @@ impl
         )?;
 
         Ok(Self {
+            integrity_specifications: None,
+            currency_conversion_data: None,
             split_settlement: None,
             split_payments: router_data
                 .request
@@ -3818,6 +3855,7 @@ impl
             .map(ConnectorState::foreign_from);
 
         Ok(Self {
+            payment_method: None,
             test_mode: router_data.test_mode,
             amount: Some(payments_grpc::Money {
                 minor_amount: router_data.request.total_amount,
@@ -4907,6 +4945,11 @@ impl transformers::ForeignTryFrom<payments_grpc::CardNetwork> for common_enums::
             payments_grpc::CardNetwork::Prop => Ok(Self::Prop),
             payments_grpc::CardNetwork::PrivateLabel => Ok(Self::PrivateLabel),
             payments_grpc::CardNetwork::Dinacard => Ok(Self::Dinacard),
+            payments_grpc::CardNetwork::AirPlus => Ok(Self::AirPlus),
+            payments_grpc::CardNetwork::Aurore => Ok(Self::Aurore),
+            payments_grpc::CardNetwork::EftposAustralia => Ok(Self::EftposAustralia),
+            payments_grpc::CardNetwork::GeCapital => Ok(Self::GeCapital),
+            payments_grpc::CardNetwork::Uatp => Ok(Self::Uatp),
             payments_grpc::CardNetwork::Unspecified => {
                 Err(UnifiedConnectorServiceError::ResponseDeserializationFailed)?
             }
@@ -5467,6 +5510,7 @@ impl transformers::ForeignTryFrom<hyperswitch_domain_models::payment_address::Pa
                 city: details.and_then(|d| d.city.as_ref().map(|s| s.clone().into())),
                 state: details.and_then(|d| d.state.as_ref().map(|s| s.clone().expose().into())),
                 zip_code: details.and_then(|d| d.zip.as_ref().map(|s| s.clone().expose().into())),
+                origin_zip: details.and_then(|d| d.origin_zip.clone()),
                 country_alpha2_code: country,
                 email: address
                     .email
@@ -5502,6 +5546,7 @@ impl transformers::ForeignTryFrom<hyperswitch_domain_models::payment_address::Pa
                 city: details.and_then(|d| d.city.as_ref().map(|s| s.clone().into())),
                 state: details.and_then(|d| d.state.as_ref().map(|s| s.peek().to_string().into())),
                 zip_code: details.and_then(|d| d.zip.as_ref().map(|s| s.peek().to_string().into())),
+                origin_zip: details.and_then(|d| d.origin_zip.clone()),
                 country_alpha2_code: country,
                 email: address.email.as_ref().map(|e| e.peek().to_string().into()),
                 phone_number: address
@@ -5540,6 +5585,7 @@ impl transformers::ForeignTryFrom<hyperswitch_domain_models::payment_address::Pa
                         .and_then(|d| d.state.as_ref().map(|s| s.peek().to_string().into())),
                     zip_code: details
                         .and_then(|d| d.zip.as_ref().map(|s| s.peek().to_string().into())),
+                    origin_zip: details.and_then(|d| d.origin_zip.clone()),
                     country_alpha2_code: country,
                     email: address
                         .email
@@ -5588,6 +5634,7 @@ impl transformers::ForeignTryFrom<hyperswitch_domain_models::address::Address>
             city: details.and_then(|d| d.city.as_ref().map(|s| s.clone().into())),
             state: details.and_then(|d| d.state.as_ref().map(|s| s.peek().to_string().into())),
             zip_code: details.and_then(|d| d.zip.as_ref().map(|s| s.peek().to_string().into())),
+            origin_zip: details.and_then(|d| d.origin_zip.clone()),
             country_alpha2_code: country,
             email: address.email.as_ref().map(|e| e.peek().to_string().into()),
             phone_number: address
@@ -8532,6 +8579,7 @@ impl transformers::ForeignTryFrom<&RouterData<Execute, RefundsData, RefundsRespo
             .map(|payment_method_type| payment_method_type.into());
 
         Ok(Self {
+            currency_conversion_data: None,
             split_settlement_refund: None,
             split_refunds: router_data
                 .request
@@ -8837,6 +8885,7 @@ impl transformers::ForeignTryFrom<&RouterData<api::Void, PaymentsCancelData, Pay
             .map(ConnectorState::foreign_from);
 
         Ok(Self {
+            payment_method: None,
             merchant_void_id: Some(router_data.connector_request_reference_id.clone()),
             connector_transaction_id: router_data.request.connector_transaction_id.clone(),
             cancellation_reason: router_data.request.cancellation_reason.clone(),
@@ -8895,6 +8944,7 @@ impl
             .map(ConnectorState::foreign_from);
 
         Ok(Self {
+            payment_method: None,
             merchant_void_id: Some(router_data.connector_request_reference_id.clone()),
             connector_transaction_id: router_data.request.connector_transaction_id.clone(),
             split_payments: None,
