@@ -3,11 +3,12 @@ use common_types::primitive_wrappers;
 #[cfg(feature = "v2")]
 use common_utils::errors::ParsingError;
 #[cfg(feature = "v2")]
-use common_utils::ext_traits::{Encode, ValueExt};
+use common_utils::ext_traits::Encode;
 use common_utils::{
     crypto::Encryptable,
     encryption::Encryption,
     errors::{CustomResult, ValidationError},
+    ext_traits::ValueExt,
     id_type,
     pii::{self, Email},
     type_name,
@@ -264,6 +265,7 @@ pub struct PaymentIntentUpdateFields {
     pub external_surcharge_strategy: Option<common_enums::SurchargeStrategy>,
     pub external_surcharge_applicable: Option<bool>,
     pub enable_avs_check: Option<bool>,
+    pub sender_details: Option<Encryptable<api_models::payments::SenderDetails>>,
 }
 
 #[cfg(feature = "v1")]
@@ -317,6 +319,7 @@ pub struct PaymentIntentUpdateFields {
     pub external_surcharge_applicable: Option<bool>,
     pub is_account_funded_transaction: Option<bool>,
     pub recipient_details: Option<Encryptable<Secret<serde_json::Value>>>,
+    pub sender_details: Option<Encryptable<api_models::payments::SenderDetails>>,
     pub enable_avs_check: Option<bool>,
 }
 
@@ -553,6 +556,7 @@ pub struct PaymentIntentUpdateInternal {
     pub external_surcharge_applicable: Option<bool>,
     pub is_account_funded_transaction: Option<bool>,
     pub recipient_details: Option<Encryptable<Secret<serde_json::Value>>>,
+    pub sender_details: Option<Encryptable<api_models::payments::SenderDetails>>,
     pub enable_avs_check: Option<bool>,
 }
 
@@ -612,6 +616,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                 external_surcharge_strategy: None,
                 external_surcharge_applicable: None,
                 enable_avs_check: None,
+                sender_details: None,
             }),
 
             PaymentIntentUpdate::ConfirmIntentPostUpdate {
@@ -665,6 +670,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                 external_surcharge_strategy: None,
                 external_surcharge_applicable: None,
                 enable_avs_check: None,
+                sender_details: None,
             }),
             PaymentIntentUpdate::SyncUpdate {
                 status,
@@ -716,6 +722,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                 external_surcharge_strategy: None,
                 external_surcharge_applicable: None,
                 enable_avs_check: None,
+                sender_details: None,
             }),
             PaymentIntentUpdate::CaptureUpdate {
                 status,
@@ -767,6 +774,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                 external_surcharge_strategy: None,
                 external_surcharge_applicable: None,
                 enable_avs_check: None,
+                sender_details: None,
             }),
             PaymentIntentUpdate::SessionIntentUpdate {
                 prerouting_algorithm,
@@ -821,6 +829,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                 external_surcharge_strategy: None,
                 external_surcharge_applicable: None,
                 enable_avs_check: None,
+                sender_details: None,
             }),
             PaymentIntentUpdate::UpdateIntent(boxed_intent) => {
                 let PaymentIntentUpdateFields {
@@ -865,6 +874,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                     external_surcharge_strategy,
                     external_surcharge_applicable,
                     enable_avs_check,
+                    sender_details,
                 } = *boxed_intent;
                 Ok(Self {
                     status: None,
@@ -918,6 +928,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                     external_surcharge_strategy,
                     external_surcharge_applicable,
                     enable_avs_check,
+                    sender_details: sender_details.map(Encryption::from),
                 })
             }
             PaymentIntentUpdate::RecordUpdate {
@@ -972,6 +983,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                 external_surcharge_strategy: None,
                 external_surcharge_applicable: None,
                 enable_avs_check: None,
+                sender_details: None,
             }),
             PaymentIntentUpdate::VoidUpdate { status, updated_by } => Ok(Self {
                 status: Some(status),
@@ -1020,6 +1032,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                 external_surcharge_strategy: None,
                 external_surcharge_applicable: None,
                 enable_avs_check: None,
+                sender_details: None,
             }),
             PaymentIntentUpdate::AttemptGroupUpdate {
                 updated_by,
@@ -1071,6 +1084,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                 external_surcharge_strategy: None,
                 external_surcharge_applicable: None,
                 enable_avs_check: None,
+                sender_details: None,
             }),
             PaymentIntentUpdate::SplitPaymentStatusUpdate { status, updated_by } => Ok(Self {
                 status: Some(status),
@@ -1118,6 +1132,7 @@ impl TryFrom<PaymentIntentUpdate> for diesel_models::PaymentIntentUpdateInternal
                 external_surcharge_strategy: None,
                 external_surcharge_applicable: None,
                 enable_avs_check: None,
+                sender_details: None,
             }),
         }
     }
@@ -1402,6 +1417,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::RecurrenceUpdate { status, updated_by } => Self {
@@ -1462,6 +1478,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
         }
@@ -1574,6 +1591,7 @@ impl From<PaymentIntentUpdate> for DieselPaymentIntentUpdate {
                     external_surcharge_applicable: None,
                     is_account_funded_transaction: value.is_account_funded_transaction,
                     recipient_details: value.recipient_details.map(Encryption::from),
+                    sender_details: value.sender_details.map(Encryption::from),
                     enable_avs_check: value.enable_avs_check,
                 }))
             }
@@ -1770,6 +1788,7 @@ impl From<PaymentIntentUpdateInternal> for diesel_models::PaymentIntentUpdateInt
             external_surcharge_applicable,
             is_account_funded_transaction,
             recipient_details,
+            sender_details,
             enable_avs_check,
         } = value;
         Self {
@@ -1832,6 +1851,7 @@ impl From<PaymentIntentUpdateInternal> for diesel_models::PaymentIntentUpdateInt
             external_surcharge_applicable,
             is_account_funded_transaction,
             recipient_details: recipient_details.map(Encryption::from),
+            sender_details: sender_details.map(Encryption::from),
             enable_avs_check,
         }
     }
@@ -2298,6 +2318,7 @@ impl behaviour::Conversion for PaymentIntent {
             external_surcharge_applicable,
             is_account_funded_transaction,
             recipient_details,
+            sender_details,
             enable_avs_check,
             mit_category,
         } = self;
@@ -2416,6 +2437,7 @@ impl behaviour::Conversion for PaymentIntent {
             external_surcharge_applicable,
             is_account_funded_transaction,
             recipient_details: recipient_details.map(Encryption::from),
+            sender_details: sender_details.map(Encryption::from),
             enable_avs_check,
         })
     }
@@ -2438,6 +2460,7 @@ impl behaviour::Conversion for PaymentIntent {
                         shipping_address: storage_model.shipping_address,
                         customer_details: storage_model.customer_details,
                         recipient_details: storage_model.recipient_details,
+                        sender_details: storage_model.sender_details,
                     },
                 )),
                 key_manager_identifier,
@@ -2576,6 +2599,14 @@ impl behaviour::Conversion for PaymentIntent {
                 external_surcharge_applicable: storage_model.external_surcharge_applicable,
                 is_account_funded_transaction: storage_model.is_account_funded_transaction,
                 recipient_details: data.recipient_details,
+                sender_details: data
+                    .sender_details
+                    .map(|sender| {
+                        sender.deserialize_inner_value(|value| value.parse_value("SenderDetails"))
+                    })
+                    .transpose()
+                    .change_context(common_utils::errors::CryptoError::DecodingFailed)
+                    .attach_printable("Error while deserializing SenderDetails")?,
                 enable_avs_check: storage_model.enable_avs_check,
                 mit_category: storage_model.mit_category,
             })
@@ -2694,6 +2725,7 @@ impl behaviour::Conversion for PaymentIntent {
             external_surcharge_applicable: self.external_surcharge_applicable,
             is_account_funded_transaction: self.is_account_funded_transaction,
             recipient_details: self.recipient_details.map(Encryption::from),
+            sender_details: self.sender_details.map(Encryption::from),
             enable_avs_check: self.enable_avs_check,
         })
     }
@@ -2791,6 +2823,7 @@ impl behaviour::Conversion for PaymentIntent {
             external_surcharge_applicable: self.external_surcharge_applicable,
             is_account_funded_transaction: self.is_account_funded_transaction,
             recipient_details: self.recipient_details.map(Encryption::from),
+            sender_details: self.sender_details.map(Encryption::from),
             enable_avs_check: self.enable_avs_check,
         })
     }
@@ -2814,6 +2847,7 @@ impl behaviour::Conversion for PaymentIntent {
                         shipping_details: storage_model.shipping_details,
                         customer_details: storage_model.customer_details,
                         recipient_details: storage_model.recipient_details,
+                        sender_details: storage_model.sender_details,
                     },
                 )),
                 key_manager_identifier,
@@ -2914,6 +2948,14 @@ impl behaviour::Conversion for PaymentIntent {
                 external_surcharge_applicable: storage_model.external_surcharge_applicable,
                 is_account_funded_transaction: storage_model.is_account_funded_transaction,
                 recipient_details: data.recipient_details,
+                sender_details: data
+                    .sender_details
+                    .map(|sender| {
+                        sender.deserialize_inner_value(|value| value.parse_value("SenderDetails"))
+                    })
+                    .transpose()
+                    .change_context(common_utils::errors::CryptoError::DecodingFailed)
+                    .attach_printable("Error while deserializing SenderDetails")?,
                 enable_avs_check: storage_model.enable_avs_check,
             })
         }
@@ -3009,6 +3051,7 @@ impl behaviour::Conversion for PaymentIntent {
             external_surcharge_applicable: self.external_surcharge_applicable,
             is_account_funded_transaction: self.is_account_funded_transaction,
             recipient_details: self.recipient_details.map(Encryption::from),
+            sender_details: self.sender_details.map(Encryption::from),
             enable_avs_check: self.enable_avs_check,
         })
     }

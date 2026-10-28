@@ -93,6 +93,7 @@ pub struct PaymentIntent {
     pub is_account_funded_transaction: Option<bool>,
     pub recipient_details: Option<Encryption>,
     pub enable_avs_check: Option<bool>,
+    pub sender_details: Option<Encryption>,
     pub merchant_reference_id: Option<common_utils::id_type::PaymentReferenceId>,
     pub billing_address: Option<Encryption>,
     pub shipping_address: Option<Encryption>,
@@ -220,6 +221,7 @@ pub struct PaymentIntent {
     pub is_account_funded_transaction: Option<bool>,
     pub recipient_details: Option<Encryption>,
     pub enable_avs_check: Option<bool>,
+    pub sender_details: Option<Encryption>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, diesel::AsExpression, PartialEq)]
@@ -447,6 +449,7 @@ pub struct PaymentIntentNew {
     pub is_account_funded_transaction: Option<bool>,
     pub recipient_details: Option<Encryption>,
     pub enable_avs_check: Option<bool>,
+    pub sender_details: Option<Encryption>,
 }
 
 #[cfg(feature = "v1")]
@@ -544,6 +547,7 @@ pub struct PaymentIntentNew {
     pub is_account_funded_transaction: Option<bool>,
     pub recipient_details: Option<Encryption>,
     pub enable_avs_check: Option<bool>,
+    pub sender_details: Option<Encryption>,
 }
 
 #[cfg(feature = "v2")]
@@ -743,6 +747,7 @@ pub struct PaymentIntentUpdateFields {
     pub is_account_funded_transaction: Option<bool>,
     pub recipient_details: Option<Encryption>,
     pub enable_avs_check: Option<bool>,
+    pub sender_details: Option<Encryption>,
 }
 
 // TODO: uncomment fields as necessary
@@ -796,6 +801,7 @@ pub struct PaymentIntentUpdateInternal {
     pub external_surcharge_strategy: Option<common_enums::SurchargeStrategy>,
     pub external_surcharge_applicable: Option<bool>,
     pub enable_avs_check: Option<bool>,
+    pub sender_details: Option<Encryption>,
 }
 
 #[cfg(feature = "v1")]
@@ -863,6 +869,7 @@ pub struct PaymentIntentUpdateInternal {
     pub is_account_funded_transaction: Option<bool>,
     pub recipient_details: Option<Encryption>,
     pub enable_avs_check: Option<bool>,
+    pub sender_details: Option<Encryption>,
 }
 
 #[cfg(feature = "v1")]
@@ -938,6 +945,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::StateMetadataUpdate {
@@ -1002,6 +1010,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::Update(value) => Self {
@@ -1064,6 +1073,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: value.external_surcharge_applicable,
                 is_account_funded_transaction: value.is_account_funded_transaction,
                 recipient_details: value.recipient_details,
+                sender_details: value.sender_details,
                 enable_avs_check: value.enable_avs_check,
             },
             PaymentIntentUpdate::PaymentCreateUpdate {
@@ -1133,6 +1143,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::PGStatusUpdate {
@@ -1199,6 +1210,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::MerchantStatusUpdate {
@@ -1265,6 +1277,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::ResponseUpdate {
@@ -1339,6 +1352,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::PaymentAttemptAndAttemptCountUpdate {
@@ -1404,6 +1418,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::StatusAndAttemptUpdate {
@@ -1470,6 +1485,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::ApproveUpdate {
@@ -1535,6 +1551,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::RejectUpdate {
@@ -1600,6 +1617,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::SurchargeApplicableUpdate {
@@ -1664,6 +1682,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::ExternalSurchargeApplicableUpdate {
@@ -1728,6 +1747,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_strategy: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::IncrementalAuthorizationAmountUpdate { amount } => Self {
@@ -1789,6 +1809,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::AuthorizationCountUpdate {
@@ -1852,6 +1873,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::CompleteAuthorizeUpdate {
@@ -1915,6 +1937,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::ManualUpdate {
@@ -1980,6 +2003,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::SessionResponseUpdate {
@@ -2046,6 +2070,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
             PaymentIntentUpdate::RecurrenceUpdate { status, updated_by } => Self {
@@ -2107,6 +2132,7 @@ impl From<PaymentIntentUpdate> for PaymentIntentUpdateInternal {
                 external_surcharge_applicable: None,
                 is_account_funded_transaction: None,
                 recipient_details: None,
+                sender_details: None,
                 enable_avs_check: None,
             },
         }
